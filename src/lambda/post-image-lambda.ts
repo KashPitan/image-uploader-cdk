@@ -22,8 +22,8 @@ export const postImage = async(event: APIGatewayProxyEventV2) => {
         throw Error('No bucket name exists');
     }
 
-    const filename = data.image.filename;
-    const fileType = filename.match(/(?<=\.)(jpg|jpeg|svg|png|gif)/);
+    const fileName = data.image.fileName;
+    const fileType = fileName.match(/(?<=\.)(jpg|jpeg|svg|png|gif)/);
 
     if(!fileType){
         return {statusCode: 400, headers: {}, body: JSON.stringify({response: 'File type not accepted'})};
@@ -39,7 +39,7 @@ export const postImage = async(event: APIGatewayProxyEventV2) => {
     const params = {
         Bucket: process.env.BUCKET,
         Body: base64Data,
-        Key: data.image.filename,
+        Key: data.image.fileName,
         ContentEncoding: 'base64', // required
         ContentType: `image/${fileType[0]}` // required
     }
