@@ -11,14 +11,14 @@
     "watch": "tsc -w",
     "test": "jest",
     "cdk": "cdk",
-    "deploy": "make pkg-windows && npm run cdk-deploy"
+    "package": "ts-node packageScript.ts"
   },
   "devDependencies": {
     "@aws-cdk/aws-apigatewayv2-integrations-alpha": "^2.25.0-alpha.0",
     "@types/aws-lambda": "^8.10.97",
     "@types/jest": "^26.0.10",
-    "@types/node": "10.17.27",
-    "aws-cdk": "2.25.0",
+    "@types/node": "^20.2.5",
+    "aws-cdk": "^2.82.0",
     "aws-sdk": "^2.1140.0",
     "jest": "^26.4.2",
     "just-kebab-case": "^4.0.3",
@@ -28,7 +28,7 @@
   },
   "dependencies": {
     "@aws-cdk/aws-apigatewayv2-alpha": "^2.25.0-alpha.0",
-    "aws-cdk-lib": "2.25.0",
+    "aws-cdk-lib": "^2.82.0",
     "constructs": "^10.0.0",
     "source-map-support": "^0.5.16"
   }
