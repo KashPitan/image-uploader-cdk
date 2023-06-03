@@ -12,7 +12,6 @@ export class ImageUploadStack extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, props);
 
-    // TODO get from CDK JSON File to ensure there is always an account number (alternative)
     const accountNumber = this.node.tryGetContext('accountNumber');
     if(!accountNumber){
       throw new Error("You must specify an account number via context, e.g. 'cdk deploy -c accountNumber=...'");
