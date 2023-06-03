@@ -33,9 +33,16 @@ export class ImageUploadStack extends Stack {
     assetBucket.grantReadWrite(uploadImageLambda);
 
     const api = new apigwv2.HttpApi(this, 'image-api', { corsPreflight: {
-      allowOrigins: ['*']
+      allowOrigins: ['*'],
+      allowHeaders : ["Content-Type"],
+      allowMethods: [
+        apigwv2.CorsHttpMethod.GET,
+        apigwv2.CorsHttpMethod.HEAD,
+        apigwv2.CorsHttpMethod.OPTIONS,
+        apigwv2.CorsHttpMethod.POST,
+      ],
     }});
-    
+
     const imageUploadLambdaIntegration = new HttpLambdaIntegration('ImageUploadLambdaIntegration', uploadImageLambda);
 
     api.addRoutes({
