@@ -3,7 +3,7 @@ import { APIGatewayProxyEventV2 } from 'aws-lambda'
 
 // TODO: Add tests
 // TODO: Create interface for request
-export const uploadImageToLambda = async(event: APIGatewayProxyEventV2) => {
+export const postImage = async(event: APIGatewayProxyEventV2) => {
     console.log('Lambda hit: ', event);
 
     const data = event.body ? JSON.parse(event.body) : null;
@@ -54,4 +54,4 @@ export const uploadImageToLambda = async(event: APIGatewayProxyEventV2) => {
     return {statusCode: 200, body: JSON.stringify({response: 'Image upload successful'})};
 };
 
-exports.handler = uploadImageToLambda;
+exports.handler = postImage;

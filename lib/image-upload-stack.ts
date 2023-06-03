@@ -20,27 +20,9 @@ export class ImageUploadStack extends Stack {
     const assetBucket = this._createS3Bucket('asset-bucket', accountNumber);
     const siteBucket = this._createS3Bucket('site-bucket', accountNumber, { isWebsite: true, websiteIndexDocument: "index.html", publicReadAccess: true });
 
-    const siteCDN = new cloudfront.CloudFrontWebDistribution(this, `image-upload-cdn`, {
-      originConfigs: [{customOriginSource: {
-        domainName: siteBucket.bucketWebsiteDomainName,
-        originProtocolPolicy: cloudfront.OriginProtocolPolicy.HTTP_ONLY
-      }, behaviors: [{
-        isDefaultBehavior: true
-      }]}],
-    });
-
-    new BucketDeployment(this, 'imageUploadSiteDeployment', {
-      destinationBucket: siteBucket,
-      distribution: siteCDN,
-      distributionPaths: ['/*'],
-      sources: [Source.asset('src/site/build')]
-    });
-
-    // TODO set up public access for url
-
     const uploadImageLambda = new lambda.Function(this, 'UploadImageFunction', {
       runtime: lambda.Runtime.NODEJS_16_X,
-      handler: 'uploadImageToLambda.handler',
+      handler: 'post-image-lambda.handler',
       code: lambda.Code.fromAsset('dist'),
       environment: {
         BUCKET: assetBucket.bucketName
@@ -50,13 +32,37 @@ export class ImageUploadStack extends Stack {
     // grant access to s3 bucket
     assetBucket.grantReadWrite(uploadImageLambda);
 
-    const api = new apigwv2.HttpApi(this, 'image-api');
+    const api = new apigwv2.HttpApi(this, 'image-api', { corsPreflight: {
+      allowOrigins: ['*']
+    }});
+    
     const imageUploadLambdaIntegration = new HttpLambdaIntegration('ImageUploadLambdaIntegration', uploadImageLambda);
 
     api.addRoutes({
       path: '/upload-image',
       methods: [apigwv2.HttpMethod.POST],
-      integration: imageUploadLambdaIntegration
+      integration: imageUploadLambdaIntegration,
+    });
+
+    const siteCDN = new cloudfront.CloudFrontWebDistribution(this, `image-upload-cdn`, {
+      originConfigs: [{customOriginSource: {
+        domainName: siteBucket.bucketWebsiteDomainName,
+        originProtocolPolicy: cloudfront.OriginProtocolPolicy.HTTP_ONLY
+      }, behaviors: [{
+        isDefaultBehavior: true
+      }]}],
+    });
+
+    // this is a config that will be uploaded to the site s3 bucket to allow it to access the api url
+    const appConfig = {
+      API_URL: api.url,
+    };
+
+    new BucketDeployment(this, 'imageUploadSiteDeployment', {
+      destinationBucket: siteBucket,
+      distribution: siteCDN,
+      distributionPaths: ['/*'],
+      sources: [Source.asset('src/site/build'), Source.jsonData('config.json', appConfig)]
     });
   }
 
@@ -66,9 +72,8 @@ export class ImageUploadStack extends Stack {
       versioned: true,
       blockPublicAccess: BlockPublicAccess.BLOCK_ACLS,
       accessControl: BucketAccessControl.BUCKET_OWNER_FULL_CONTROL,
-      // If stack is deleted, bucket still remains. This deletes the bucket if the stack is deleted.
       removalPolicy: cdk.RemovalPolicy.DESTROY,
-      autoDeleteObjects: true, //bucket can't be destoyed if it has objects in it
+      autoDeleteObjects: true,
       ...options
     });
   }

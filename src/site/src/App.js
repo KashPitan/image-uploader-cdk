@@ -3,15 +3,18 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 
 function App() {
-  const [base64Image, setBase64Image] = useState("")
+  const [base64Image, setBase64Image] = useState("");
+  const baseUrl = window.env.API_URL;
 
-  const uploadImage = (e) => {
-    console.log('e ', e);
-
-    console.log(base64Image);
-    // 1. set image path
-    // 2. convert image to base 64
-    // 3. Make API call to gateway with image path
+  const uploadImage = async (e) => {
+    // console.log('e ', e);
+    console.log(baseUrl);
+    try {
+      const res = await axios.post(`${baseUrl}upload-image`, {image: base64Image});
+      console.log(res);
+    }catch(error){
+      console.log(error);
+    }
 
     // TODO make api call to upload image
     // TODO set image path. Give it to the API call (to gateway, need API url for) once converted from base 64.
