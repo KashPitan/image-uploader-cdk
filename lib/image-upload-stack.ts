@@ -4,6 +4,8 @@ import { Construct } from 'constructs';
 import * as cdk from 'aws-cdk-lib';
 import * as apigwv2 from '@aws-cdk/aws-apigatewayv2-alpha';
 import { HttpLambdaIntegration } from '@aws-cdk/aws-apigatewayv2-integrations-alpha';
+import { BlockPublicAccess, BucketAccessControl } from "aws-cdk-lib/aws-s3";
+
 const kebabCase = require('just-kebab-case');
 
 export class ImageUploadStack extends Stack {
@@ -38,7 +40,7 @@ export class ImageUploadStack extends Stack {
     // TODO set up public access for url
 
     const uploadImageLambda = new lambda.Function(this, 'UploadImageFunction', {
-      runtime: lambda.Runtime.NODEJS_14_X,
+      runtime: lambda.Runtime.NODEJS_16_X,
       handler: 'uploadImageToLambda.handler',
       code: lambda.Code.fromAsset('dist'),
       environment: {
@@ -63,6 +65,8 @@ export class ImageUploadStack extends Stack {
     return new s3.Bucket(this, bucketName, {
       bucketName: `${bucketName}-${kebabCase(accountNumber)}`,
       versioned: true,
+      blockPublicAccess: BlockPublicAccess.BLOCK_ACLS,
+      accessControl: BucketAccessControl.BUCKET_OWNER_FULL_CONTROL,
       // If stack is deleted, bucket still remains. This deletes the bucket if the stack is deleted.
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true, //bucket can't be destoyed if it has objects in it
