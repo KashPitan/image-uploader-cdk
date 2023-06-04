@@ -3,15 +3,22 @@ import * as AWS from 'aws-sdk';
 import { APIGatewayProxyEventV2 } from 'aws-lambda';
 import middy from '@middy/core';
 import validator from '@middy/validator';
-import httpErrorHandler from '@middy/http-error-handler';
-import jsonBodyParser from '@middy/http-json-body-parser';
+import { transpileSchema } from '@middy/validator/transpile';
+
+// import httpErrorHandler from '@middy/http-error-handler';
+// import jsonBodyParser from '@middy/http-json-body-parser';
+
+import PostImageSchema from './schemas/image-post-schema';
 
 // TODO: Add tests
 // TODO: Create interface for request
 export const postImage = async (event: APIGatewayProxyEventV2) => {
   console.log('Lambda hit: ', event);
 
+  console.log(event.body);
   const data = event.body ? JSON.parse(event.body) : null;
+  //   const data = event.body;
+  //   const { fileName, contents } = event.body.image;
 
   if (!data) {
     return {
@@ -83,4 +90,6 @@ export const postImage = async (event: APIGatewayProxyEventV2) => {
   };
 };
 
-exports.handler = middy(postImage).use(jsonBodyParser);
+exports.handler = middy(postImage).use(
+  validator({ eventSchema: transpileSchema(PostImageSchema) })
+);
