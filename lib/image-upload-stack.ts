@@ -65,7 +65,7 @@ export class ImageUploadStack extends Stack {
     );
 
     api.addRoutes({
-      path: '/upload-image',
+      path: '/image',
       methods: [apigwv2.HttpMethod.POST],
       integration: imageUploadLambdaIntegration,
     });
