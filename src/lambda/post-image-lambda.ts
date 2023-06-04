@@ -1,5 +1,10 @@
 import * as AWS from 'aws-sdk';
+// IMPORT JUST s3 to reduce size
 import { APIGatewayProxyEventV2 } from 'aws-lambda';
+import middy from '@middy/core';
+import validator from '@middy/validator';
+import httpErrorHandler from '@middy/http-error-handler';
+import jsonBodyParser from '@middy/http-json-body-parser';
 
 // TODO: Add tests
 // TODO: Create interface for request
@@ -78,4 +83,4 @@ export const postImage = async (event: APIGatewayProxyEventV2) => {
   };
 };
 
-exports.handler = postImage;
+exports.handler = middy(postImage).use(jsonBodyParser);
