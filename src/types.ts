@@ -7,8 +7,6 @@ type PostImageRequestBody = {
   };
 };
 
-type APIGatewayOmitBody = Omit<APIGatewayProxyEventV2, 'body'>;
-
-export interface PostImageEndpointEvent extends APIGatewayOmitBody {
+export type PostImageEndpointEvent = Omit<APIGatewayProxyEventV2, 'body'> & {
   body: PostImageRequestBody;
-}
+};
