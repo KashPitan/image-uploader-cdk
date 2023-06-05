@@ -1,15 +1,14 @@
-import './App.css';
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 
-function App() {
+const UploadPage = () => {
   const [base64Image, setBase64Image] = useState("");
-  const [selectedImageName, setSelectedImageName] = useState("")
+  const [selectedImageName, setSelectedImageName] = useState("");
   const baseUrl = window.env.API_URL;
 
   const uploadImage = async (e) => {
     try {
-      const res = await axios.post(`${baseUrl}upload-image`, {image: {contents: base64Image, fileName: selectedImageName}});
+      const res = await axios.post(`${baseUrl}images`, {image: {contents: base64Image, fileName: selectedImageName}});
       console.log(res);
     }catch(error){
       console.log(error);
@@ -37,15 +36,13 @@ function App() {
   }, []);
    
   return (
-    <div className="App">
-      <div>
+    <div>
         <input id="file-upload" type="file" accept=".gif,.jpg,.jpeg,.png" /> 
         {base64Image && (
-          <button onClick={(e) => uploadImage(e)}>Upload image</button>
+            <button onClick={(e) => uploadImage(e)}>Upload image</button>
         )}
-      </div>
     </div>
   );
 }
 
-export default App;
+export default UploadPage;
