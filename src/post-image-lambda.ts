@@ -11,12 +11,8 @@ import jsonBodyParser from '@middy/http-json-body-parser';
 
 import PostImageSchema from './schemas/image-post-schema';
 
-// TODO: Create interface for request
 const postImage = async (event: PostImageEndpointEvent) => {
-  console.log('Lambda hit: ', event);
-
   console.log(event.body);
-  // const data = event.body ? JSON.parse(event.body) : null;
 
   const { fileName, contents } = event.body.image;
 
@@ -26,7 +22,6 @@ const postImage = async (event: PostImageEndpointEvent) => {
     throw Error('No bucket name exists');
   }
 
-  // const fileName = data.image.fileName;
   const fileType = fileName.match(/(?<=\.)(jpg|jpeg|svg|png|gif)/);
 
   if (!fileType) {
@@ -54,6 +49,7 @@ const postImage = async (event: PostImageEndpointEvent) => {
   try {
     await s3.putObject(params).promise();
   } catch (err) {
+    // add error logger
     //  throw Error(JSON.stringify(err));
     return { statusCode: 500, body: JSON.stringify({ response: err }) };
   }
