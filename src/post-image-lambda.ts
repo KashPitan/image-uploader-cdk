@@ -1,6 +1,6 @@
 import * as AWS from 'aws-sdk';
 // IMPORT JUST s3 to reduce size
-import { APIGatewayProxyEventV2 } from 'aws-lambda';
+import { PostImageEndpointEvent } from './types';
 
 import middy from '@middy/core';
 import validator from '@middy/validator';
@@ -12,31 +12,13 @@ import jsonBodyParser from '@middy/http-json-body-parser';
 import PostImageSchema from './schemas/image-post-schema';
 
 // TODO: Create interface for request
-const postImage = async (event: APIGatewayProxyEventV2) => {
+const postImage = async (event: PostImageEndpointEvent) => {
   console.log('Lambda hit: ', event);
 
   console.log(event.body);
-  const data = event.body ? JSON.parse(event.body) : null;
-  //   const data = event.body;
-  //   const { fileName, contents } = event.body.image;
+  // const data = event.body ? JSON.parse(event.body) : null;
 
-  if (!data) {
-    return {
-      statusCode: 400,
-      headers: {},
-      body: JSON.stringify({ response: 'Request does not have a body' }),
-    };
-  }
-
-  if (!data.image) {
-    return {
-      statusCode: 400,
-      headers: {},
-      body: JSON.stringify({
-        response: 'Image property does not exist in request',
-      }),
-    };
-  }
+  const { fileName, contents } = event.body.image;
 
   const s3 = new AWS.S3();
 
@@ -44,7 +26,7 @@ const postImage = async (event: APIGatewayProxyEventV2) => {
     throw Error('No bucket name exists');
   }
 
-  const fileName = data.image.fileName;
+  // const fileName = data.image.fileName;
   const fileType = fileName.match(/(?<=\.)(jpg|jpeg|svg|png|gif)/);
 
   if (!fileType) {
@@ -55,24 +37,16 @@ const postImage = async (event: APIGatewayProxyEventV2) => {
     };
   }
 
-  if (!data.image.contents) {
-    return {
-      statusCode: 400,
-      headers: {},
-      body: JSON.stringify({ response: 'No image content' }),
-    };
-  }
-
   // This converts the base64 image into binary data that is accepted by the S3 bucket
   const base64Data = Buffer.from(
-    data.image.contents.replace(/^data:image\/\w+;base64,/, ''),
+    contents.replace(/^data:image\/\w+;base64,/, ''),
     'base64'
   );
 
   const params = {
     Bucket: process.env.BUCKET,
     Body: base64Data,
-    Key: data.image.fileName,
+    Key: fileName,
     ContentEncoding: 'base64', // required
     ContentType: `image/${fileType[0]}`, // required
   };
