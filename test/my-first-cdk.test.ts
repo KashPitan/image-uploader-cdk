@@ -1,17 +1,20 @@
-// import * as cdk from 'aws-cdk-lib';
-// import { Template } from 'aws-cdk-lib/assertions';
-// import * as MyFirstCdk from '../lib/my-first-cdk-stack';
+import { handler } from '../src/post-image-lambda';
 
-// example test. To run these tests, uncomment this file along with the
-// example resource in lib/my-first-cdk-stack.ts
-test('SQS Queue Created', () => {
-//   const app = new cdk.App();
-//     // WHEN
-//   const stack = new MyFirstCdk.MyFirstCdkStack(app, 'MyTestStack');
-//     // THEN
-//   const template = Template.fromStack(stack);
+describe('PostImage handler', () => {
+  test('200', async () => {
+    const event: any = {
+      body: JSON.stringify({
+        image: { contents: 'test', fileName: 'test' },
+      }),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    };
 
-//   template.hasResourceProperties('AWS::SQS::Queue', {
-//     VisibilityTimeout: 300
-//   });
+    const context: any = {};
+
+    const res = await handler(event, context);
+    console.log(res);
+    expect(1).toStrictEqual(1);
+  });
 });

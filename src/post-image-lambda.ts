@@ -1,18 +1,18 @@
 import * as AWS from 'aws-sdk';
 // IMPORT JUST s3 to reduce size
 import { APIGatewayProxyEventV2 } from 'aws-lambda';
+
 import middy from '@middy/core';
 import validator from '@middy/validator';
 import { transpileSchema } from '@middy/validator/transpile';
 
 // import httpErrorHandler from '@middy/http-error-handler';
-// import jsonBodyParser from '@middy/http-json-body-parser';
+import jsonBodyParser from '@middy/http-json-body-parser';
 
 import PostImageSchema from './schemas/image-post-schema';
 
-// TODO: Add tests
 // TODO: Create interface for request
-export const postImage = async (event: APIGatewayProxyEventV2) => {
+const postImage = async (event: APIGatewayProxyEventV2) => {
   console.log('Lambda hit: ', event);
 
   console.log(event.body);
@@ -90,6 +90,8 @@ export const postImage = async (event: APIGatewayProxyEventV2) => {
   };
 };
 
-exports.handler = middy(postImage).use(
-  validator({ eventSchema: transpileSchema(PostImageSchema) })
-);
+export const handler = middy(postImage)
+  .use(jsonBodyParser())
+  .use(validator({ eventSchema: transpileSchema(PostImageSchema) }));
+
+exports.handler = handler;

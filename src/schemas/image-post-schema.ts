@@ -4,6 +4,7 @@ const schema = {
   properties: {
     body: {
       type: 'object',
+      required: ['image'],
       properties: {
         image: {
           type: 'object',
