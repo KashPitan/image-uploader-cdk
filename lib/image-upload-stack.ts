@@ -43,8 +43,17 @@ export class ImageUploadStack extends Stack {
       },
     });
 
-    // grant access to s3 bucket
+    const getImagesLambda = new lambda.Function(this, 'GetImagesFunction', {
+      runtime: lambda.Runtime.NODEJS_16_X,
+      handler: 'get-images-lambda.handler',
+      code: lambda.Code.fromAsset('dist'),
+      environment: {
+        BUCKET: assetBucket.bucketName,
+      },
+    });
+
     assetBucket.grantReadWrite(uploadImageLambda);
+    assetBucket.grantRead(getImagesLambda);
 
     const api = new apigwv2.HttpApi(this, 'image-api', {
       corsPreflight: {
@@ -59,15 +68,26 @@ export class ImageUploadStack extends Stack {
       },
     });
 
-    const imageUploadLambdaIntegration = new HttpLambdaIntegration(
-      'ImageUploadLambdaIntegration',
+    const imagePostLambgaIntegration = new HttpLambdaIntegration(
+      'imagePostLambgaIntegration',
       uploadImageLambda
+    );
+
+    const imagesGetLambdaIntegration = new HttpLambdaIntegration(
+      'imagesGetLambdaIntegration',
+      getImagesLambda
     );
 
     api.addRoutes({
       path: '/images',
       methods: [apigwv2.HttpMethod.POST],
-      integration: imageUploadLambdaIntegration,
+      integration: imagePostLambgaIntegration,
+    });
+
+    api.addRoutes({
+      path: '/images',
+      methods: [apigwv2.HttpMethod.GET],
+      integration: imagesGetLambdaIntegration,
     });
 
     const siteCDN = new cloudfront.CloudFrontWebDistribution(
@@ -105,6 +125,10 @@ export class ImageUploadStack extends Stack {
       ],
     });
   }
+
+  // private _createLambda = () => {
+
+  // }
 
   private _createS3Bucket = (
     bucketName: string,
