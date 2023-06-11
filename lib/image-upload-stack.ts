@@ -4,7 +4,6 @@ import {
   aws_s3 as s3,
   aws_lambda as lambda,
   aws_apigateway as apigateway,
-  aws_cloudfront_origins as origins,
   aws_cloudfront as cloudfront,
 } from 'aws-cdk-lib';
 import { BucketDeployment, Source } from 'aws-cdk-lib/aws-s3-deployment';
@@ -13,6 +12,17 @@ import * as cdk from 'aws-cdk-lib';
 import * as apigwv2 from '@aws-cdk/aws-apigatewayv2-alpha';
 import { HttpLambdaIntegration } from '@aws-cdk/aws-apigatewayv2-integrations-alpha';
 import { BlockPublicAccess, BucketAccessControl } from 'aws-cdk-lib/aws-s3';
+import { S3Origin } from 'aws-cdk-lib/aws-cloudfront-origins';
+import {
+  ViewerProtocolPolicy,
+  AllowedMethods,
+  OriginRequestPolicy,
+  ResponseHeadersPolicy,
+  CachePolicy,
+  CacheHeaderBehavior,
+} from 'aws-cdk-lib/aws-cloudfront';
+
+import pascalCase from 'just-pascal-case';
 
 const kebabCase = require('just-kebab-case');
 
@@ -29,30 +39,24 @@ export class ImageUploadStack extends Stack {
 
     const assetBucket = this._createS3Bucket('asset-bucket', accountNumber);
     const siteBucket = this._createS3Bucket('site-bucket', accountNumber, {
-      isWebsite: true,
-      websiteIndexDocument: 'index.html',
       publicReadAccess: true,
     });
 
-    const uploadImageLambda = new lambda.Function(this, 'UploadImageFunction', {
-      runtime: lambda.Runtime.NODEJS_16_X,
-      handler: 'post-image-lambda.handler',
-      code: lambda.Code.fromAsset('dist'),
-      environment: {
-        BUCKET: assetBucket.bucketName,
-      },
-    });
+    const LAMBDA_ENVIRONMENT = {
+      BUCKET: assetBucket.bucketName,
+    };
 
-    const getImagesLambda = new lambda.Function(this, 'GetImagesFunction', {
-      runtime: lambda.Runtime.NODEJS_16_X,
-      handler: 'get-images-lambda.handler',
-      code: lambda.Code.fromAsset('dist'),
-      environment: {
-        BUCKET: assetBucket.bucketName,
-      },
-    });
+    const {
+      handler: postImagesLambda,
+      integration: imagePostLambgaIntegration,
+    } = this._createLambdaResources('post-image-lambda', LAMBDA_ENVIRONMENT);
 
-    assetBucket.grantReadWrite(uploadImageLambda);
+    const {
+      handler: getImagesLambda,
+      integration: imagesGetLambdaIntegration,
+    } = this._createLambdaResources('get-images-lambda', LAMBDA_ENVIRONMENT);
+
+    assetBucket.grantReadWrite(postImagesLambda);
     assetBucket.grantRead(getImagesLambda);
 
     const api = new apigwv2.HttpApi(this, 'image-api', {
@@ -68,16 +72,6 @@ export class ImageUploadStack extends Stack {
       },
     });
 
-    const imagePostLambgaIntegration = new HttpLambdaIntegration(
-      'imagePostLambgaIntegration',
-      uploadImageLambda
-    );
-
-    const imagesGetLambdaIntegration = new HttpLambdaIntegration(
-      'imagesGetLambdaIntegration',
-      getImagesLambda
-    );
-
     api.addRoutes({
       path: '/images',
       methods: [apigwv2.HttpMethod.POST],
@@ -90,25 +84,32 @@ export class ImageUploadStack extends Stack {
       integration: imagesGetLambdaIntegration,
     });
 
-    const siteCDN = new cloudfront.CloudFrontWebDistribution(
-      this,
-      `image-upload-cdn`,
-      {
-        originConfigs: [
-          {
-            customOriginSource: {
-              domainName: siteBucket.bucketWebsiteDomainName,
-              originProtocolPolicy: cloudfront.OriginProtocolPolicy.HTTP_ONLY,
-            },
-            behaviors: [
-              {
-                isDefaultBehavior: true,
-              },
-            ],
-          },
-        ],
-      }
-    );
+    const cachePolicy = new CachePolicy(this, `${id}CachePolicy`, {
+      headerBehavior: CacheHeaderBehavior.allowList(
+        'Access-Control-Request-Headers',
+        'Access-Control-Request-Method',
+        'Origin'
+      ),
+    });
+
+    const siteCDN = new cloudfront.Distribution(this, `image-upload-cdn`, {
+      defaultRootObject: 'index.html',
+      defaultBehavior: {
+        origin: new S3Origin(siteBucket),
+        viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+        allowedMethods: AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
+        originRequestPolicy: OriginRequestPolicy.CORS_S3_ORIGIN,
+        responseHeadersPolicy: ResponseHeadersPolicy.CORS_ALLOW_ALL_ORIGINS,
+        cachePolicy,
+      },
+      additionalBehaviors: {
+        '/images/*': {
+          origin: new S3Origin(assetBucket),
+          cachePolicy,
+          allowedMethods: AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
+        },
+      },
+    });
 
     // this is a config that will be uploaded to the site s3 bucket to allow it to access the api url
     const appConfig = {
@@ -126,9 +127,25 @@ export class ImageUploadStack extends Stack {
     });
   }
 
-  // private _createLambda = () => {
+  private _createLambdaResources = (fileName: string, environment: {}) => {
+    const handler = new lambda.Function(
+      this,
+      `${pascalCase(fileName)}Function`,
+      {
+        runtime: lambda.Runtime.NODEJS_16_X,
+        handler: `${fileName}.handler`,
+        code: lambda.Code.fromAsset('dist'),
+        environment,
+      }
+    );
 
-  // }
+    const integration = new HttpLambdaIntegration(
+      `${fileName}Integration`,
+      handler
+    );
+
+    return { handler, integration };
+  };
 
   private _createS3Bucket = (
     bucketName: string,

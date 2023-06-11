@@ -34,6 +34,7 @@
     "@middy/validator": "^4.5.0",
     "aws-cdk-lib": "^2.82.0",
     "constructs": "^10.0.0",
+    "just-pascal-case": "^3.2.0",
     "source-map-support": "^0.5.16"
   }
 }
