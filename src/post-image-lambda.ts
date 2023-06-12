@@ -41,7 +41,7 @@ const postImage = async (event: PostImageEndpointEvent) => {
   const params = {
     Bucket: process.env.BUCKET,
     Body: base64Data,
-    Key: fileName,
+    Key: `images/${fileName}`, // in images folder to match cdn path pattern
     ContentEncoding: 'base64', // required
     ContentType: `image/${fileType[0]}`, // required
   };
