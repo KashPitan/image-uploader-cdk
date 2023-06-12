@@ -37,7 +37,12 @@ const getImages = async () => {
   }
 
   const fileNames = imageObjects.map((image) => {
-    return image.Key;
+    const imageKey = image.Key;
+    if (imageKey && imageKey !== 'images/') {
+      return imageKey.replace('images/', '');
+    } else {
+      return;
+    }
   });
 
   return {
