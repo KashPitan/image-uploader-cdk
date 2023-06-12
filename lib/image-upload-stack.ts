@@ -3,7 +3,6 @@ import {
   StackProps,
   aws_s3 as s3,
   aws_lambda as lambda,
-  aws_apigateway as apigateway,
   aws_cloudfront as cloudfront,
 } from 'aws-cdk-lib';
 import { BucketDeployment, Source } from 'aws-cdk-lib/aws-s3-deployment';
@@ -114,6 +113,7 @@ export class ImageUploadStack extends Stack {
     // this is a config that will be uploaded to the site s3 bucket to allow it to access the api url
     const appConfig = {
       API_URL: api.url,
+      CDN_URL: siteCDN.distributionDomainName,
     };
 
     new BucketDeployment(this, 'imageUploadSiteDeployment', {
