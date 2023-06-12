@@ -1,5 +1,3 @@
-import * as AWS from 'aws-sdk';
-// IMPORT JUST s3 to reduce size
 import { PostImageEndpointEvent } from './types';
 
 import middy from '@middy/core';
@@ -10,13 +8,12 @@ import { transpileSchema } from '@middy/validator/transpile';
 import jsonBodyParser from '@middy/http-json-body-parser';
 
 import PostImageSchema from './schemas/image-post-schema';
+import { s3ImagePut } from './helper/s3/put-image';
 
 const postImage = async (event: PostImageEndpointEvent) => {
   console.log(event.body);
 
   const { fileName, contents } = event.body.image;
-
-  const s3 = new AWS.S3();
 
   if (!process.env.BUCKET) {
     throw Error('No bucket name exists');
@@ -38,26 +35,11 @@ const postImage = async (event: PostImageEndpointEvent) => {
     'base64'
   );
 
-  const params = {
-    Bucket: process.env.BUCKET,
-    Body: base64Data,
-    Key: `images/${fileName}`, // in images folder to match cdn path pattern
-    ContentEncoding: 'base64', // required
-    ContentType: `image/${fileType[0]}`, // required
-  };
-
-  try {
-    await s3.putObject(params).promise();
-  } catch (err) {
-    // add error logger
-    //  throw Error(JSON.stringify(err));
-    return { statusCode: 500, body: JSON.stringify({ response: err }) };
-  }
-
-  return {
-    statusCode: 200,
-    body: JSON.stringify({ response: 'Image upload successful' }),
-  };
+  return await s3ImagePut(process.env.BUCKET, {
+    base64Data,
+    fileName,
+    fileType,
+  });
 };
 
 export const handler = middy(postImage)
