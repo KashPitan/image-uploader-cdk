@@ -36,14 +36,13 @@ const getImages = async () => {
     };
   }
 
-  const fileNames = imageObjects.map((image) => {
-    const imageKey = image.Key;
-    if (imageKey && imageKey !== 'images/') {
-      return imageKey.replace('images/', '');
-    } else {
+  // remove elements that only reference directory and not filename
+  const fileNames = imageObjects
+    .filter((image) => image.Key !== 'images/')
+    .map((image) => {
+      if (image.Key) return image.Key.replace('images/', '');
       return;
-    }
-  });
+    });
 
   return {
     statusCode: 200,
