@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import axios from 'axios';
 
-
  const ViewImagesPage = () => {
   const [imageUrls, setImageUrls] = useState([]);
   const baseUrl = window.env.API_URL;
@@ -13,8 +12,6 @@ import axios from 'axios';
       console.log(res.data.fileNames);
       setImageUrls(res.data.fileNames)
     })();
-  
-
   }, [])
   
   return (
