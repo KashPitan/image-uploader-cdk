@@ -67,13 +67,14 @@ export class ImageUploadStack extends Stack {
     } = this._createLambdaResources('get-images-lambda', LAMBDA_ENVIRONMENT);
 
     // assetBucket.grantReadWrite(postImagesLambda);
-    // auto generated policies from function above are not security compliant TODO: why?
+    // auto generated policies from function above are not security compliant as they generate wildcard permissions
+    // which by nature do not abide by the least privellege rule
     assetBucket.addToResourcePolicy(
       new PolicyStatement({
         effect: Effect.ALLOW,
-        resources: [assetBucket.bucketArn],
+        resources: [assetBucket.bucketArn, `${assetBucket.bucketArn}/*`],
         actions: ['s3:GetObject', 's3:DeleteObject*', 's3:PutObject*'],
-        principals: [new ArnPrincipal(postImagesLambda.functionArn)],
+        principals: [new ServicePrincipal('lambda.amazonaws.com')],
       })
     );
 
@@ -81,9 +82,9 @@ export class ImageUploadStack extends Stack {
     assetBucket.addToResourcePolicy(
       new PolicyStatement({
         effect: Effect.ALLOW,
-        resources: [assetBucket.bucketArn],
+        resources: [assetBucket.bucketArn, `${assetBucket.bucketArn}/*`],
         actions: ['s3:GetObject'],
-        principals: [new ArnPrincipal(getImagesLambda.functionArn)],
+        principals: [new ServicePrincipal('lambda.amazonaws.com')],
       })
     );
 
@@ -243,8 +244,8 @@ export class ImageUploadStack extends Stack {
       retention: 1, // set to a day for this project but ideally would be 30+
     });
 
-    /* the auto generated execution role (AWSLambdaBasicExecutionRole) doesn't abide by least privellege rule.
-    as it sets the resource to all (*) so I've overriden it here to apply to a single log group
+    /* the auto generated execution role (AWSLambdaBasicExecutionRole) is for logging permissions but doesn't 
+    abide by least privellege rule as it sets the resource to all (*) so I've overriden it here to apply to a single log group
     https://docs.aws.amazon.com/aws-managed-policy/latest/reference/AWSLambdaBasicExecutionRole.html */
     const lambdaExecutionRole = new Role(
       this,
@@ -277,7 +278,7 @@ export class ImageUploadStack extends Stack {
       handler: `${fileName}.handler`,
       code: lambda.Code.fromAsset('dist'),
       environment,
-      role: lambdaExecutionRole,
+      role: lambdaExecutionRole, // security compliance
     });
 
     const integration = new HttpLambdaIntegration(
@@ -310,7 +311,8 @@ export class ImageUploadStack extends Stack {
   // TODO: refactor into new file
   private _createLogBucket = (id: string) => {
     const bucket = new s3.Bucket(this, `${id}AccessLogBucket`, {
-      enforceSSL: true,
+      enforceSSL: true, // security compliance
+      accessControl: BucketAccessControl.LOG_DELIVERY_WRITE,
     });
 
     NagSuppressions.addResourceSuppressions(bucket, [
