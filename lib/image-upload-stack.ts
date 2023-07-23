@@ -20,6 +20,7 @@ import {
   CachePolicy,
   CacheHeaderBehavior,
   SecurityPolicyProtocol,
+  OriginAccessIdentity,
 } from 'aws-cdk-lib/aws-cloudfront';
 
 import pascalCase from 'just-pascal-case';
@@ -37,6 +38,7 @@ import { NagSuppressions } from 'cdk-nag';
 
 const kebabCase = require('just-kebab-case');
 
+// TODO: refactor and split out constructs
 export class ImageUploadStack extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, props);
@@ -69,29 +71,40 @@ export class ImageUploadStack extends Stack {
     // assetBucket.grantReadWrite(postImagesLambda);
     // auto generated policies from function above are not security compliant as they generate wildcard permissions
     // which by nature do not abide by the least privellege rule
-    assetBucket.addToResourcePolicy(
+    postImagesLambda.addToRolePolicy(
       new PolicyStatement({
         effect: Effect.ALLOW,
-        resources: [assetBucket.bucketArn, `${assetBucket.bucketArn}/*`],
-        actions: ['s3:GetObject', 's3:DeleteObject*', 's3:PutObject*'],
-        principals: [new ServicePrincipal('lambda.amazonaws.com')],
+        resources: [`${assetBucket.bucketArn}/*`],
+        actions: ['s3:PutObject'],
       })
     );
 
-    // assetBucket.grantRead(getImagesLambda);
-    assetBucket.addToResourcePolicy(
+    NagSuppressions.addResourceSuppressionsByPath(
+      this,
+      [
+        '/ImageUploadStack/PostImageLambdaLambdaExecutionRole/DefaultPolicy/Resource',
+      ],
+      [
+        {
+          id: 'AwsSolutions-IAM5',
+          reason:
+            'S3 put object requires wildcard to add any object https://stackoverflow.com/questions/62222077/clienterror-an-error-occurred-accessdenied-when-calling-the-putobject-operati',
+        },
+      ]
+    );
+
+    getImagesLambda.addToRolePolicy(
       new PolicyStatement({
         effect: Effect.ALLOW,
-        resources: [assetBucket.bucketArn, `${assetBucket.bucketArn}/*`],
-        actions: ['s3:GetObject'],
-        principals: [new ServicePrincipal('lambda.amazonaws.com')],
+        resources: [assetBucket.bucketArn],
+        actions: ['s3:ListBucket'],
       })
     );
 
     const api = new apigwv2.HttpApi(this, 'image-api', {
       apiName: 'image-api',
       corsPreflight: {
-        allowOrigins: ['*'],
+        allowOrigins: ['*'], // update this to be more specific
         allowHeaders: ['Content-Type'],
         allowMethods: [
           apigwv2.CorsHttpMethod.GET,
@@ -161,6 +174,11 @@ export class ImageUploadStack extends Stack {
       minimumProtocolVersion: SecurityPolicyProtocol.TLS_V1_1_2016,
       // TODO: add viewer certificate
     });
+    const cdnOriginAccessIdentity = new OriginAccessIdentity(
+      this,
+      `ImageUploadCdnOAI`,
+      {}
+    );
 
     NagSuppressions.addResourceSuppressions(siteCDN, [
       {
@@ -174,6 +192,20 @@ export class ImageUploadStack extends Stack {
       API_URL: api.url,
       CDN_URL: siteCDN.distributionDomainName,
     };
+
+    assetBucket.addToResourcePolicy(
+      new PolicyStatement({
+        sid: 'AllowCloudFront',
+        effect: Effect.ALLOW,
+        principals: [
+          new ArnPrincipal(
+            `arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ${cdnOriginAccessIdentity.originAccessIdentityId}`
+          ),
+        ],
+        actions: ['s3:GetObject'],
+        resources: [assetBucket.bucketArn, `${assetBucket.bucketArn}/*`],
+      })
+    );
 
     new BucketDeployment(this, 'imageUploadSiteDeployment', {
       destinationBucket: siteBucket,
@@ -311,6 +343,7 @@ export class ImageUploadStack extends Stack {
   // TODO: refactor into new file
   private _createLogBucket = (id: string) => {
     const bucket = new s3.Bucket(this, `${id}AccessLogBucket`, {
+      bucketName: `${kebabCase(`${id}AccessLogBucket`)}`,
       enforceSSL: true, // security compliance
       accessControl: BucketAccessControl.LOG_DELIVERY_WRITE,
     });
