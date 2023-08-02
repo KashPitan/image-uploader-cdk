@@ -21,6 +21,7 @@ import {
   CacheHeaderBehavior,
   SecurityPolicyProtocol,
   OriginAccessIdentity,
+  ErrorResponse,
 } from 'aws-cdk-lib/aws-cloudfront';
 
 import pascalCase from 'just-pascal-case';
@@ -52,7 +53,17 @@ export class ImageUploadStack extends Stack {
 
     // move assets into single bucket?
     const assetBucket = this._createS3Bucket('asset-bucket', accountNumber);
-    const siteBucket = this._createS3Bucket('site-bucket', accountNumber);
+    const siteBucket = this._createS3Bucket('site-bucket', accountNumber, {
+      // websiteIndexDocument: 'index.html',
+      // websiteErrorDocument: 'index.html',
+    });
+
+    NagSuppressions.addResourceSuppressions(siteBucket, [
+      {
+        id: 'AwsSolutions-S5',
+        reason: 'ignore for now',
+      },
+    ]);
 
     const LAMBDA_ENVIRONMENT = {
       BUCKET: assetBucket.bucketName,
@@ -77,20 +88,6 @@ export class ImageUploadStack extends Stack {
         resources: [`${assetBucket.bucketArn}/*`],
         actions: ['s3:PutObject'],
       })
-    );
-
-    NagSuppressions.addResourceSuppressionsByPath(
-      this,
-      [
-        '/ImageUploadStack/PostImageLambdaLambdaExecutionRole/DefaultPolicy/Resource',
-      ],
-      [
-        {
-          id: 'AwsSolutions-IAM5',
-          reason:
-            'S3 put object requires wildcard to add any object https://stackoverflow.com/questions/62222077/clienterror-an-error-occurred-accessdenied-when-calling-the-putobject-operati',
-        },
-      ]
     );
 
     getImagesLambda.addToRolePolicy(
@@ -129,19 +126,6 @@ export class ImageUploadStack extends Stack {
 
     this.enableApiGatewayLogging(api); // security compliance
     // TODO: Api auth
-    NagSuppressions.addResourceSuppressionsByPath(
-      this,
-      [
-        '/ImageUploadStack/image-api/POST--images/Resource',
-        '/ImageUploadStack/image-api/GET--images/Resource',
-      ],
-      [
-        {
-          id: 'AwsSolutions-APIG4',
-          reason: 'Adding auth later',
-        },
-      ]
-    );
 
     const cachePolicy = new CachePolicy(this, `${id}CachePolicy`, {
       headerBehavior: CacheHeaderBehavior.allowList(
@@ -151,9 +135,27 @@ export class ImageUploadStack extends Stack {
       ),
     });
 
+    // for some reason these don't create unless defined externally?
+    const errorResponses: ErrorResponse[] = [
+      {
+        httpStatus: 403,
+        responseHttpStatus: 200,
+        responsePagePath: '/index.html',
+        ttl: cdk.Duration.seconds(10),
+      },
+      {
+        httpStatus: 404,
+        responsePagePath: '/index.html',
+        responseHttpStatus: 200,
+        ttl: cdk.Duration.seconds(10),
+      },
+    ];
+
     const cdnAccessLogsBucket = this._createLogBucket('imageUploadCdn');
     const siteCDN = new cloudfront.Distribution(this, `image-upload-cdn`, {
       defaultRootObject: 'index.html',
+      // handle react routing
+      errorResponses,
       defaultBehavior: {
         origin: new S3Origin(siteBucket),
         viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
@@ -171,7 +173,8 @@ export class ImageUploadStack extends Stack {
       },
       logBucket: cdnAccessLogsBucket,
       enableLogging: true,
-      minimumProtocolVersion: SecurityPolicyProtocol.TLS_V1_1_2016,
+      minimumProtocolVersion: SecurityPolicyProtocol.TLS_V1_2_2021,
+
       // TODO: add viewer certificate
     });
     const cdnOriginAccessIdentity = new OriginAccessIdentity(
@@ -185,6 +188,10 @@ export class ImageUploadStack extends Stack {
         id: 'AwsSolutions-CFR4',
         reason: 'Adding viewer certificate later',
       },
+      {
+        id: 'AwsSolutions-CFR5',
+        reason: 'Adding viewer certificate later',
+      },
     ]);
 
     // this is a config that will be uploaded to the site s3 bucket to allow it to access the api url
@@ -194,17 +201,16 @@ export class ImageUploadStack extends Stack {
     };
 
     assetBucket.addToResourcePolicy(
-      new PolicyStatement({
-        sid: 'AllowCloudFront',
-        effect: Effect.ALLOW,
-        principals: [
-          new ArnPrincipal(
-            `arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ${cdnOriginAccessIdentity.originAccessIdentityId}`
-          ),
-        ],
-        actions: ['s3:GetObject'],
-        resources: [assetBucket.bucketArn, `${assetBucket.bucketArn}/*`],
-      })
+      this.createOaiPolicyStatement(
+        assetBucket.bucketArn,
+        cdnOriginAccessIdentity.originAccessIdentityId
+      )
+    );
+    siteBucket.addToResourcePolicy(
+      this.createOaiPolicyStatement(
+        siteBucket.bucketArn,
+        cdnOriginAccessIdentity.originAccessIdentityId
+      )
     );
 
     new BucketDeployment(this, 'imageUploadSiteDeployment', {
@@ -217,31 +223,22 @@ export class ImageUploadStack extends Stack {
       ],
     });
 
-    // by path instead of by construct as I'm suppressing errors from the constructs created
-    // under the hood e.g. lambda created to upload files for bucket deployment
-    NagSuppressions.addResourceSuppressionsByPath(
-      this,
-      [
-        '/ImageUploadStack/Custom::CDKBucketDeployment8693BB64968944B69AAFB0CC9EB8756C/Resource',
-        '/ImageUploadStack/Custom::CDKBucketDeployment8693BB64968944B69AAFB0CC9EB8756C/ServiceRole/DefaultPolicy/Resource',
-        '/ImageUploadStack/Custom::CDKBucketDeployment8693BB64968944B69AAFB0CC9EB8756C/ServiceRole/Resource',
-      ],
-      [
-        {
-          id: 'AwsSolutions-L1',
-          reason: 'Auto created lambda function for bucket deployment',
-        },
-        {
-          id: 'AwsSolutions-IAM5',
-          reason: 'Auto created',
-        },
-        {
-          id: 'AwsSolutions-IAM4',
-          reason: 'Auto created lambda execution policy for bucket deployment',
-        },
-      ]
-    );
+    suppressNagErrors(this);
   }
+
+  private createOaiPolicyStatement = (bucketArn: string, OaiId: string) => {
+    return new PolicyStatement({
+      sid: 'AllowCloudFront',
+      effect: Effect.ALLOW,
+      principals: [
+        new ArnPrincipal(
+          `arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ${OaiId}`
+        ),
+      ],
+      actions: ['s3:GetObject', 's3:ListBucket'],
+      resources: [bucketArn, `${bucketArn}/*`],
+    });
+  };
 
   private enableApiGatewayLogging = (api: apigwv2.HttpApi) => {
     const logGroup = new LogGroup(this, 'LogGroup', {
@@ -324,7 +321,7 @@ export class ImageUploadStack extends Stack {
   private _createS3Bucket = (
     bucketName: string,
     accountNumber: string,
-    options = {}
+    options: s3.BucketProps = {}
   ) => {
     return new s3.Bucket(this, bucketName, {
       bucketName: `${bucketName}-${kebabCase(accountNumber)}`,
@@ -346,6 +343,8 @@ export class ImageUploadStack extends Stack {
       bucketName: `${kebabCase(`${id}AccessLogBucket`)}`,
       enforceSSL: true, // security compliance
       accessControl: BucketAccessControl.LOG_DELIVERY_WRITE,
+      // block public access
+      // removal policy
     });
 
     NagSuppressions.addResourceSuppressions(bucket, [
@@ -358,3 +357,58 @@ export class ImageUploadStack extends Stack {
     return bucket;
   };
 }
+
+const suppressNagErrors = function (stack: Stack) {
+  // by path instead of by construct as I'm suppressing errors from the constructs created
+  // under the hood e.g. lambda created to upload files for bucket deployment
+  NagSuppressions.addResourceSuppressionsByPath(
+    stack,
+    [
+      '/ImageUploadStack/Custom::CDKBucketDeployment8693BB64968944B69AAFB0CC9EB8756C/Resource',
+      '/ImageUploadStack/Custom::CDKBucketDeployment8693BB64968944B69AAFB0CC9EB8756C/ServiceRole/DefaultPolicy/Resource',
+      '/ImageUploadStack/Custom::CDKBucketDeployment8693BB64968944B69AAFB0CC9EB8756C/ServiceRole/Resource',
+    ],
+    [
+      {
+        id: 'AwsSolutions-L1',
+        reason: 'Auto created lambda function for bucket deployment',
+      },
+      {
+        id: 'AwsSolutions-IAM5',
+        reason: 'Auto created',
+      },
+      {
+        id: 'AwsSolutions-IAM4',
+        reason: 'Auto created lambda execution policy for bucket deployment',
+      },
+    ]
+  );
+
+  NagSuppressions.addResourceSuppressionsByPath(
+    stack,
+    [
+      '/ImageUploadStack/image-api/POST--images/Resource',
+      '/ImageUploadStack/image-api/GET--images/Resource',
+    ],
+    [
+      {
+        id: 'AwsSolutions-APIG4',
+        reason: 'Adding auth later',
+      },
+    ]
+  );
+
+  NagSuppressions.addResourceSuppressionsByPath(
+    stack,
+    [
+      '/ImageUploadStack/PostImageLambdaLambdaExecutionRole/DefaultPolicy/Resource',
+    ],
+    [
+      {
+        id: 'AwsSolutions-IAM5',
+        reason:
+          'S3 put object requires wildcard to add any object https://stackoverflow.com/questions/62222077/clienterror-an-error-occurred-accessdenied-when-calling-the-putobject-operati',
+      },
+    ]
+  );
+};
