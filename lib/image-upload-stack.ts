@@ -1,34 +1,13 @@
-import {
-  Stack,
-  StackProps,
-  aws_s3 as s3,
-  aws_lambda as lambda,
-  aws_cloudfront as cloudfront,
-} from 'aws-cdk-lib';
+import { Stack, StackProps } from 'aws-cdk-lib';
 import { BucketDeployment, Source } from 'aws-cdk-lib/aws-s3-deployment';
 import { Construct } from 'constructs';
 import * as cdk from 'aws-cdk-lib';
 import * as apigwv2 from '@aws-cdk/aws-apigatewayv2-alpha';
-import { HttpLambdaIntegration } from '@aws-cdk/aws-apigatewayv2-integrations-alpha';
-import { BlockPublicAccess, BucketAccessControl } from 'aws-cdk-lib/aws-s3';
-import { S3Origin } from 'aws-cdk-lib/aws-cloudfront-origins';
-import {
-  ViewerProtocolPolicy,
-  AllowedMethods,
-  OriginRequestPolicy,
-  ResponseHeadersPolicy,
-  CachePolicy,
-  CacheHeaderBehavior,
-  SecurityPolicyProtocol,
-  OriginAccessIdentity,
-  ErrorResponse,
-} from 'aws-cdk-lib/aws-cloudfront';
+import { OriginAccessIdentity } from 'aws-cdk-lib/aws-cloudfront';
 
-import pascalCase from 'just-pascal-case';
 import {
   ArnPrincipal,
   Effect,
-  PolicyDocument,
   PolicyStatement,
   Role,
   ServicePrincipal,
@@ -37,7 +16,9 @@ import { CfnStage } from 'aws-cdk-lib/aws-apigatewayv2';
 import { LogGroup } from 'aws-cdk-lib/aws-logs';
 import { NagSuppressions } from 'cdk-nag';
 
-const kebabCase = require('just-kebab-case');
+import createS3Bucket from './constructs/s3/bucket';
+import createLambdaResources from './constructs/lambda/lambda';
+import createDistribution from './constructs/cloudfront/cloudfront';
 
 // TODO: refactor and split out constructs
 export class ImageUploadStack extends Stack {
@@ -52,11 +33,8 @@ export class ImageUploadStack extends Stack {
     }
 
     // move assets into single bucket?
-    const assetBucket = this._createS3Bucket('asset-bucket', accountNumber);
-    const siteBucket = this._createS3Bucket('site-bucket', accountNumber, {
-      // websiteIndexDocument: 'index.html',
-      // websiteErrorDocument: 'index.html',
-    });
+    const assetBucket = createS3Bucket(this, 'asset-bucket', accountNumber);
+    const siteBucket = createS3Bucket(this, 'site-bucket', accountNumber);
 
     NagSuppressions.addResourceSuppressions(siteBucket, [
       {
@@ -72,12 +50,12 @@ export class ImageUploadStack extends Stack {
     const {
       handler: postImagesLambda,
       integration: imagePostLambgaIntegration,
-    } = this._createLambdaResources('post-image-lambda', LAMBDA_ENVIRONMENT);
+    } = createLambdaResources(this, 'post-image-lambda', LAMBDA_ENVIRONMENT);
 
     const {
       handler: getImagesLambda,
       integration: imagesGetLambdaIntegration,
-    } = this._createLambdaResources('get-images-lambda', LAMBDA_ENVIRONMENT);
+    } = createLambdaResources(this, 'get-images-lambda', LAMBDA_ENVIRONMENT);
 
     // assetBucket.grantReadWrite(postImagesLambda);
     // auto generated policies from function above are not security compliant as they generate wildcard permissions
@@ -112,6 +90,7 @@ export class ImageUploadStack extends Stack {
       },
     });
 
+    // add config to each lambda?
     api.addRoutes({
       path: '/images',
       methods: [apigwv2.HttpMethod.POST],
@@ -127,56 +106,8 @@ export class ImageUploadStack extends Stack {
     this.enableApiGatewayLogging(api); // security compliance
     // TODO: Api auth
 
-    const cachePolicy = new CachePolicy(this, `${id}CachePolicy`, {
-      headerBehavior: CacheHeaderBehavior.allowList(
-        'Access-Control-Request-Headers',
-        'Access-Control-Request-Method',
-        'Origin'
-      ),
-    });
+    const siteCDN = createDistribution(this, { siteBucket, assetBucket });
 
-    // for some reason these don't create unless defined externally?
-    const errorResponses: ErrorResponse[] = [
-      {
-        httpStatus: 403,
-        responseHttpStatus: 200,
-        responsePagePath: '/index.html',
-        ttl: cdk.Duration.seconds(10),
-      },
-      {
-        httpStatus: 404,
-        responsePagePath: '/index.html',
-        responseHttpStatus: 200,
-        ttl: cdk.Duration.seconds(10),
-      },
-    ];
-
-    const cdnAccessLogsBucket = this._createLogBucket('imageUploadCdn');
-    const siteCDN = new cloudfront.Distribution(this, `image-upload-cdn`, {
-      defaultRootObject: 'index.html',
-      // handle react routing
-      errorResponses,
-      defaultBehavior: {
-        origin: new S3Origin(siteBucket),
-        viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-        allowedMethods: AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
-        originRequestPolicy: OriginRequestPolicy.CORS_S3_ORIGIN,
-        responseHeadersPolicy: ResponseHeadersPolicy.CORS_ALLOW_ALL_ORIGINS,
-        cachePolicy,
-      },
-      additionalBehaviors: {
-        '/images/*': {
-          origin: new S3Origin(assetBucket),
-          cachePolicy,
-          allowedMethods: AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
-        },
-      },
-      logBucket: cdnAccessLogsBucket,
-      enableLogging: true,
-      minimumProtocolVersion: SecurityPolicyProtocol.TLS_V1_2_2021,
-
-      // TODO: add viewer certificate
-    });
     const cdnOriginAccessIdentity = new OriginAccessIdentity(
       this,
       `ImageUploadCdnOAI`,
@@ -262,99 +193,6 @@ export class ImageUploadStack extends Stack {
       }),
     };
     logGroup.grantWrite(new ServicePrincipal('apigateway.amazonaws.com'));
-  };
-
-  private _createLambdaResources = (fileName: string, environment?: {}) => {
-    const functionName = `${pascalCase(fileName)}`;
-
-    const logGroup = new LogGroup(this, `${functionName}LogGroup`, {
-      logGroupName: `/aws/lambda/${functionName}`,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      retention: 1, // set to a day for this project but ideally would be 30+
-    });
-
-    /* the auto generated execution role (AWSLambdaBasicExecutionRole) is for logging permissions but doesn't 
-    abide by least privellege rule as it sets the resource to all (*) so I've overriden it here to apply to a single log group
-    https://docs.aws.amazon.com/aws-managed-policy/latest/reference/AWSLambdaBasicExecutionRole.html */
-    const lambdaExecutionRole = new Role(
-      this,
-      `${functionName}LambdaExecutionRole`,
-      {
-        roleName: `${functionName}LambdaExecutionRole`,
-        assumedBy: new ServicePrincipal('lambda.amazonaws.com'),
-        inlinePolicies: {
-          basicExecutionRole: new PolicyDocument({
-            statements: [
-              new PolicyStatement({
-                effect: Effect.ALLOW,
-                actions: [
-                  'logs:CreateLogGroup',
-                  'logs:CreateLogStream',
-                  'logs:PutLogEvents',
-                ],
-                resources: [logGroup.logGroupArn],
-              }),
-            ],
-          }),
-        },
-      }
-    );
-
-    // TODO: add timeout
-    const handler = new lambda.Function(this, `${functionName}Function`, {
-      functionName: functionName,
-      runtime: lambda.Runtime.NODEJS_18_X,
-      handler: `${fileName}.handler`,
-      code: lambda.Code.fromAsset('dist'),
-      environment,
-      role: lambdaExecutionRole, // security compliance
-    });
-
-    const integration = new HttpLambdaIntegration(
-      `${fileName}Integration`,
-      handler
-    );
-
-    return { handler, integration };
-  };
-
-  private _createS3Bucket = (
-    bucketName: string,
-    accountNumber: string,
-    options: s3.BucketProps = {}
-  ) => {
-    return new s3.Bucket(this, bucketName, {
-      bucketName: `${bucketName}-${kebabCase(accountNumber)}`,
-      versioned: true,
-      blockPublicAccess: BlockPublicAccess.BLOCK_ALL, // security compliance
-      accessControl: BucketAccessControl.BUCKET_OWNER_FULL_CONTROL, // security compliance
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      autoDeleteObjects: true,
-      serverAccessLogsBucket: this._createLogBucket(bucketName), // security compliance
-      serverAccessLogsPrefix: 'access-logs',
-      enforceSSL: true, // security compliance
-      ...options,
-    });
-  };
-
-  // TODO: refactor into new file
-  private _createLogBucket = (id: string) => {
-    const bucket = new s3.Bucket(this, `${id}AccessLogBucket`, {
-      bucketName: `${kebabCase(`${id}AccessLogBucket`)}`,
-      enforceSSL: true, // security compliance
-      accessControl: BucketAccessControl.LOG_DELIVERY_WRITE,
-      // block public access
-      // removal policy
-    });
-
-    NagSuppressions.addResourceSuppressions(bucket, [
-      {
-        id: 'AwsSolutions-S1',
-        reason: 'Log bucket does not need access logs',
-      },
-    ]);
-
-    return bucket;
   };
 }
 

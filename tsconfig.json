@@ -22,6 +22,6 @@
     "strictPropertyInitialization": false,
     "typeRoots": ["./node_modules/@types"]
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "lib/constructs"],
   "exclude": ["node_modules", "cdk.out", "src/**/*.test.ts"]
 }
